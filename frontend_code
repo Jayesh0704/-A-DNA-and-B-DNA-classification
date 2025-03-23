@@ -1,0 +1,165 @@
+import os
+import tkinter as tk
+from tkinter import filedialog, ttk
+import threading
+import subprocess
+from pathlib import Path
+
+class DNAStructureGraphApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("DNA Structure Graph Analysis")
+        self.root.geometry("800x600")
+        
+        # Variables
+        self.input_folders = []
+        self.output_folder = ""
+        self.k_values = [3, 4, 5, 6]
+        
+        # Create main frame
+        self.main_frame = ttk.Frame(root, padding=10)
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Input folder selection
+        ttk.Label(self.main_frame, text="Input Folders:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        
+        self.input_list_frame = ttk.Frame(self.main_frame)
+        self.input_list_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        
+        self.input_listbox = tk.Listbox(self.input_list_frame, height=5, width=70)
+        self.input_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        input_scrollbar = ttk.Scrollbar(self.input_list_frame, orient=tk.VERTICAL, command=self.input_listbox.yview)
+        input_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.input_listbox.configure(yscrollcommand=input_scrollbar.set)
+        
+        input_buttons_frame = ttk.Frame(self.main_frame)
+        input_buttons_frame.grid(row=2, column=0, columnspan=3, sticky=tk.W, pady=5)
+        
+        ttk.Button(input_buttons_frame, text="Add Folder", command=self.add_input_folder).pack(side=tk.LEFT, padx=5)
+        ttk.Button(input_buttons_frame, text="Remove Selected", command=self.remove_input_folder).pack(side=tk.LEFT, padx=5)
+        
+        # Output folder selection
+        ttk.Label(self.main_frame, text="Output Folder:").grid(row=3, column=0, sticky=tk.W, pady=5)
+        
+        self.output_entry = ttk.Entry(self.main_frame, width=60)
+        self.output_entry.grid(row=3, column=1, sticky=(tk.W, tk.E), pady=5)
+        
+        ttk.Button(self.main_frame, text="Browse", command=self.select_output_folder).grid(row=3, column=2, padx=5)
+        
+        # K values selection
+        ttk.Label(self.main_frame, text="K Values (comma-separated):").grid(row=4, column=0, sticky=tk.W, pady=5)
+        
+        self.k_values_entry = ttk.Entry(self.main_frame, width=60)
+        self.k_values_entry.grid(row=4, column=1, sticky=(tk.W, tk.E), pady=5)
+        self.k_values_entry.insert(0, ",".join(map(str, self.k_values)))
+        
+        # Status display
+        ttk.Label(self.main_frame, text="Status:").grid(row=5, column=0, sticky=tk.W, pady=5)
+        
+        self.status_text = tk.Text(self.main_frame, height=10, width=70, wrap=tk.WORD)
+        self.status_text.grid(row=6, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
+        self.status_text.config(state=tk.DISABLED)
+        
+        status_scrollbar = ttk.Scrollbar(self.main_frame, orient=tk.VERTICAL, command=self.status_text.yview)
+        status_scrollbar.grid(row=6, column=3, sticky=(tk.N, tk.S))
+        self.status_text.configure(yscrollcommand=status_scrollbar.set)
+        
+        # Process button
+        ttk.Button(self.main_frame, text="Process PDB Files", command=self.process_files).grid(
+            row=7, column=0, columnspan=3, pady=10
+        )
+        
+        # Configure grid weights
+        self.main_frame.columnconfigure(1, weight=1)
+        self.main_frame.rowconfigure(6, weight=1)
+        
+    def add_input_folder(self):
+        folder = filedialog.askdirectory(title="Select Input Folder")
+        if folder and folder not in self.input_folders:
+            self.input_folders.append(folder)
+            self.input_listbox.insert(tk.END, folder)
+    
+    def remove_input_folder(self):
+        selection = self.input_listbox.curselection()
+        if selection:
+            index = selection[0]
+            self.input_listbox.delete(index)
+            self.input_folders.pop(index)
+    
+    def select_output_folder(self):
+        folder = filedialog.askdirectory(title="Select Output Folder")
+        if folder:
+            self.output_folder = folder
+            self.output_entry.delete(0, tk.END)
+            self.output_entry.insert(0, folder)
+    
+    def update_status(self, message):
+        self.status_text.config(state=tk.NORMAL)
+        self.status_text.insert(tk.END, message + "\n")
+        self.status_text.see(tk.END)
+        self.status_text.config(state=tk.DISABLED)
+        self.root.update_idletasks()
+    
+    def process_files(self):
+        if not self.input_folders:
+            self.update_status("Error: No input folders selected")
+            return
+        
+        if not self.output_folder:
+            self.update_status("Error: No output folder selected")
+            return
+        
+        try:
+            k_values = [int(k.strip()) for k in self.k_values_entry.get().split(",")]
+        except ValueError:
+            self.update_status("Error: Invalid k values. Use comma-separated integers.")
+            return
+        
+        self.update_status("Starting processing...")
+        
+        # Start processing in a separate thread
+        threading.Thread(target=self.run_processing, args=(k_values,), daemon=True).start()
+    
+    def run_processing(self, k_values):
+        try:
+            # Construct command to run main.py
+            cmd = ["python", "main.py", "--output", self.output_folder]
+            
+            # Add input folders
+            cmd.append("--input")
+            cmd.extend(self.input_folders)
+            
+            # Add k values
+            cmd.append("--k_values")
+            cmd.extend([str(k) for k in k_values])
+            
+            # Run the command and capture output
+            self.update_status(f"Running command: {' '.join(cmd)}")
+            
+            process = subprocess.Popen(
+                cmd, 
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
+            )
+            
+            # Stream output to the status box
+            for line in process.stdout:
+                self.update_status(line.strip())
+            
+            process.wait()
+            
+            if process.returncode == 0:
+                self.update_status("Processing completed successfully!")
+            else:
+                self.update_status(f"Processing failed with exit code {process.returncode}")
+                
+        except Exception as e:
+            self.update_status(f"Error during processing: {e}")
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = DNAStructureGraphApp(root)
+    root.mainloop()

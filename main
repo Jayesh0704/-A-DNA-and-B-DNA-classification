@@ -1,0 +1,185 @@
+import os
+import tkinter as tk
+from tkinter import filedialog, simpledialog
+from data_structure_DSG import DNAStructureGraph
+
+def create_folder_structure(base_output_dir, input_folders):
+    """Create the hierarchical folder structure for results."""
+    result_structure = {}
+    
+    # Create base output directory if it doesn't exist
+    os.makedirs(base_output_dir, exist_ok=True)
+    
+    for folder in input_folders:
+        folder_name = os.path.basename(folder)
+        folder_result_dir = os.path.join(base_output_dir, folder_name)
+        os.makedirs(folder_result_dir, exist_ok=True)
+        
+        # Create subfolders for different result types
+        interaction_dir = os.path.join(folder_result_dir, "interactions")
+        hub_data_dir = os.path.join(folder_result_dir, "hub_data")
+        hub_plots_dir = os.path.join(folder_result_dir, "hub_plots")
+        
+        os.makedirs(interaction_dir, exist_ok=True)
+        os.makedirs(hub_data_dir, exist_ok=True)
+        os.makedirs(hub_plots_dir, exist_ok=True)
+        
+        result_structure[folder] = {
+            "base_dir": folder_result_dir,
+            "interaction_dir": interaction_dir,
+            "hub_data_dir": hub_data_dir,
+            "hub_plots_dir": hub_plots_dir
+        }
+    
+    return result_structure
+
+def process_pdb_file(pdb_file, output_dirs, cutoff_distance, k_values=None):
+    """Process a single PDB file and save all results."""
+    
+    # Extract filename without extension
+    file_basename = os.path.splitext(os.path.basename(pdb_file))[0]
+    
+    # Initialize DNA Structure Graph with the specified cutoff distance
+    dsg = DNAStructureGraph(cutoff_distance=cutoff_distance)
+    
+    try:
+        # Load PDB file
+        dsg.load_pdb(pdb_file)
+        
+        # Calculate interactions
+        dsg.calculate_interactions()
+        
+        # Save interaction data
+        interaction_file = os.path.join(
+            output_dirs["interaction_dir"], 
+            f"{file_basename}_interactions.csv"
+        )
+        dsg.save_interactions(interaction_file)
+        
+        # Analyze graph and save hub data
+        dsg.analyze_graph(k_values=k_values)
+        
+        hub_data_file = os.path.join(
+            output_dirs["hub_data_dir"], 
+            f"{file_basename}_hub_data.csv"
+        )
+        dsg.save_hub_data(output_path=hub_data_file)
+        
+        # Generate hub distribution plots for different k values
+        if k_values is None:
+            k_values = [3, 4, 5, 6]
+            
+        for k in k_values:
+            plot_file = os.path.join(
+                output_dirs["hub_plots_dir"], 
+                f"{file_basename}_hub_k_{k}.png"
+            )
+            dsg.plot_hub_distribution(k=k, output_path=plot_file)
+        
+        # Generate interactive graph visualization
+        graph_file = os.path.join(
+            output_dirs["base_dir"], 
+            f"{file_basename}_graph.html"
+        )
+        dsg.visualize_graph(output_path=graph_file)
+        
+        print(f"Successfully processed {pdb_file}")
+        return True
+        
+    except Exception as e:
+        print(f"Error processing {pdb_file}: {e}")
+        return False
+
+def process_folder(input_folder, output_dirs, cutoff_distance, k_values=None):
+    """Process all PDB files in a folder."""
+    
+    successful = 0
+    failed = 0
+    
+    # Get all PDB files in the folder
+    pdb_files = [f for f in os.listdir(input_folder) 
+                 if f.lower().endswith('.pdb') and os.path.isfile(os.path.join(input_folder, f))]
+    
+    print(f"Found {len(pdb_files)} PDB files in {input_folder}")
+    
+    for pdb_file in pdb_files:
+        full_path = os.path.join(input_folder, pdb_file)
+        if process_pdb_file(full_path, output_dirs, cutoff_distance, k_values):
+            successful += 1
+        else:
+            failed += 1
+    
+    print(f"Folder processing complete: {successful} successful, {failed} failed")
+    return successful, failed
+
+def main():
+    # Initialize Tkinter
+    root = tk.Tk()
+    root.withdraw()  # Hide the main window
+    
+    # Ask for cutoff distance - this was missing in previous implementation
+    cutoff_distance = simpledialog.askfloat("Input", "Enter cutoff distance for interactions:",
+                                          initialvalue=6.5, minvalue=0.1, maxvalue=20.0)
+    
+    if cutoff_distance is None:
+        print("No cutoff distance specified. Using default value of 6.5.")
+        cutoff_distance = 6.5
+    
+    # Ask for number of folders
+    num_folders = simpledialog.askinteger("Input", "How many folders do you want to process?", 
+                                         minvalue=1, maxvalue=10)
+    
+    if not num_folders:
+        print("No number of folders specified. Exiting.")
+        return
+    
+    # Collect folder paths
+    input_folders = []
+    for i in range(num_folders):
+        folder = filedialog.askdirectory(title=f"Select input folder {i+1}")
+        if not folder:
+            print(f"No folder selected for input {i+1}. Exiting.")
+            return
+        input_folders.append(folder)
+    
+    # Ask for output directory
+    output_folder = filedialog.askdirectory(title="Select output directory")
+    if not output_folder:
+        print("No output directory selected. Exiting.")
+        return
+    
+    # Ask for k values
+    k_values_str = simpledialog.askstring("Input", "Enter k values (comma-separated integers):", 
+                                         initialvalue="3,4,5,6")
+    
+    if k_values_str:
+        try:
+            k_values = [int(k.strip()) for k in k_values_str.split(",")]
+        except ValueError:
+            print("Invalid k values. Using default values [3,4,5,6].")
+            k_values = [3, 4, 5, 6]
+    else:
+        k_values = [3, 4, 5, 6]
+    
+    # Create result folder structure
+    result_structure = create_folder_structure(output_folder, input_folders)
+    
+    # Process each input folder
+    total_successful = 0
+    total_failed = 0
+    
+    for input_folder in input_folders:
+        print(f"\nProcessing folder: {input_folder}")
+        successful, failed = process_folder(
+            input_folder, 
+            result_structure[input_folder],
+            cutoff_distance,
+            k_values=k_values
+        )
+        total_successful += successful
+        total_failed += failed
+    
+    print(f"\nProcessing complete: {total_successful} files processed successfully, {total_failed} failed")
+
+if __name__ == "__main__":
+    main()
